@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#4CAF50">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Student Fee Manager with PDF</title>
+<style>
+body{font-family:Arial;margin:0;background:#f4f6f8}
+.container{max-width:1100px;margin:auto;padding:20px;background:#fff;border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,0.1)}
+h2{text-align:center;margin-bottom:20px}
+.tab{display:flex;gap:10px;margin-bottom:20px}
+.tab button{flex:1;padding:12px;border:none;background:#ddd;font-size:16px;border-radius:4px;cursor:pointer}
+.tab button.active{background:#4CAF50;color:#fff}
+.section{display:none;padding:10px}
+.section.active{display:block}
+input,select,button{width:100%;padding:10px;margin:6px 0;border:1px solid #ccc;border-radius:4px;box-sizing:border-box}
+button{background:#4CAF50;color:white;border:none;cursor:pointer}
+.table-wrap{overflow-x:auto;margin-top:10px}
+table{width:100%;border-collapse:collapse}
+th,td{border:1px solid #ccc;padding:8px;text-align:center}
+th{background:#eee}
+.delete{background:red;color:#fff;padding:4px;border:none;border-radius:4px;cursor:pointer}
+.payBtn{background:orange;color:#fff;padding:4px;border:none;border-radius:4px;cursor:pointer}
+.download{background:#007BFF;color:#fff;padding:8px;margin-top:10px;border:none;border-radius:4px;cursor:pointer;}
+@media(max-width:600px){th,td,button,input,select{font-size:12px}}
+</style>
+</head>
+<body>
+<div class="container">
+<h2>Student Fee Management</h2>
+<div class="tab">
+<button onclick="openTab('students',this)" class="active">Students</button>
+<button onclick="openTab('payments',this)">Payments</button>
+</div>
+
+<!-- STUDENTS SECTION -->
+<div id="students" class="section active">
+<h3>Add Student</h3>
+<input id="sName" placeholder="Student Name" />
+<input id="sClass" placeholder="Class" />
+<input id="sFee" type="number" placeholder="Monthly Fee" />
+<button onclick="addStudent()">Add Student</button>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Name</th><th>Class</th><th>Fee</th><th>Delete</th></tr></thead>
+<tbody id="studentTable"></tbody>
+</table>
+</div>
+</div>
+
+<!-- PAYMENTS SECTION -->
+<div id="payments" class="section">
+<h3>Add Payment</h3>
+<select id="studentSelect" onchange="autoFill()"></select>
+<select id="month" onchange="autoFill()">
+<option value="">-- Select Month --</option>
+<option>January</option><option>February</option><option>March</option>
+<option>April</option><option>May</option><option>June</option>
+<option>July</option><option>August</option><option>September</option>
+<option>October</option><option>November</option>
+<option>December</option>
+</select>
+<input id="amount" placeholder="Amount (AUTO)" type="number" />
+<select id="status">
+<option value="Paid">Paid</option>
+<option value="Due">Due</option>
+</select>
+<input id="payDate" type="date" placeholder="Select Payment Date" />
+<button onclick="addPayment()">Save Payment</button>
+<button class="download" onclick="downloadPDF()">Download PDF</button>
+
+<h4>Total Income: <span id="totalIncome">0</span></h4>
+
+<div class="table-wrap">
+<table id="paymentMainTable">
+<thead><tr><th>Student</th><th>Month</th><th>Amount</th><th>Status</th><th>Date</th><th>Action</th></tr></thead>
+<tbody id="paymentTable"></tbody>
+</table>
+</div>
+</div>
+</div>
+
+<!-- jsPDF CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+let students = JSON.parse(localStorage.getItem('students') || '[]');
+let payments = JSON.parse(localStorage.getItem('payments') || '[]');
+
+function openTab(id,btn){
+ document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+ document.querySelectorAll('.tab button').forEach(b=>b.classList.remove('active'));
+ document.getElementById(id).classList.add('active');
+ btn.classList.add('active');
+}
+
+function save(){
+ localStorage.setItem('students',JSON.stringify(students));
+ localStorage.setItem('payments',JSON.stringify(payments));
+}
+
+function addStudent(){
+ if(!sName.value || !sFee.value){alert('Name and Monthly Fee required');return;}
+ students.push({id:Date.now(),name:sName.value,class:sClass.value,fee:Number(sFee.value)});
+ sName.value=''; sClass.value=''; sFee.value='';
+ save(); render();
+}
+
+function autoFill(){
+ let sid = studentSelect.value;
+ let m = month.value;
+ if(!sid || !m) return;
+ let st = students.find(s=>s.id==sid);
+ if(!st) return;
+ amount.value = st.fee;
+}
+
+function addPayment(){
+ if(!studentSelect.value || !month.value){alert('Select student & month');return;}
+ let st = students.find(s=>s.id==studentSelect.value);
+ let statusEl = document.getElementById('status');
+ let paymentStatus = statusEl.value || 'Paid';
+ let payDateEl = document.getElementById('payDate');
+ let paymentDate = payDateEl.value || '';
+ payments.push({
+   id:Date.now(),
+   studentId:st.id,
+   name:st.name,
+   month:month.value,
+   amount:amount.value,
+   status:paymentStatus,
+   date:paymentDate
+ });
+ amount.value=''; payDate.value=''; statusEl.value='Paid';
+ save(); render();
+}
+
+// Mark Due as Paid and auto-set today's date
+function markPaid(id){
+ let p = payments.find(p=>p.id===id);
+ if(p){
+   p.status='Paid';
+   p.date = new Date().toISOString().split('T')[0]; 
+   save(); render();
+ }
+}
+
+function render(){
+ studentTable.innerHTML='';
+ studentSelect.innerHTML='<option value="">-- Select Student --</option>';
+ paymentTable.innerHTML='';
+ let total=0;
+
+ students.forEach(s=>{
+   studentTable.innerHTML += `<tr><td>${s.name}</td><td>${s.class}</td><td>${s.fee}</td><td><button class='delete' onclick="delStudent(${s.id})">X</button></td></tr>`;
+   studentSelect.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+ });
+
+ payments.forEach(p=>{
+   let displayStatus = p.status || 'Paid';
+   let displayDate = p.date || '';
+   let actionBtn = (displayStatus==='Due') ? `<button class='payBtn' onclick='markPaid(${p.id})'>Pay</button>` : `<button class='delete' onclick='delPayment(${p.id})'>X</button>`;
+   paymentTable.innerHTML += `<tr><td>${p.name}</td><td>${p.month}</td><td>${p.amount}</td><td>${displayStatus}</td><td>${displayDate}</td><td>${actionBtn}</td></tr>`;
+   if(displayStatus==='Paid') total += Number(p.amount);
+ });
+ document.getElementById('totalIncome').textContent = total;
+}
+
+function delStudent(id){students=students.filter(s=>s.id!==id);payments=payments.filter(p=>p.studentId!==id);save();render();}
+function delPayment(id){payments=payments.filter(p=>p.id!==id);save();render();}
+
+// PDF Download
+function downloadPDF(){
+ const { jsPDF } = window.jspdf;
+ let doc = new jsPDF();
+ doc.setFontSize(14);
+ doc.text("Student Payments Report", 10, 15);
+ let rows = [];
+ payments.forEach(p=>{
+   rows.push([p.name, p.month, p.amount, p.status, p.date]);
+ });
+ doc.autoTable({ head:[['Student','Month','Amount','Status','Date']], body:rows, startY:25 });
+ doc.text(`Total Income: ${document.getElementById('totalIncome').textContent}`,10, doc.lastAutoTable.finalY+10);
+ doc.save('Student_Payments.pdf');
+}
+
+render();
+</script>
+<!-- jsPDF autoTable plugin -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js">
+  if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => console.log('SW registered:', reg.scope))
+      .catch(err => console.log('SW registration failed:', err));
+  });
+}
+</script>
+</body>
+</html>
